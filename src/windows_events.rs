@@ -102,7 +102,14 @@ impl EventContext {
         // Retry: right after enumeration the interface is often not openable
         // yet.
         match hid::set_profile_with_retry(&self.api, info, self.config.on_connect_profile, 8) {
-            Ok(()) => self.state.last_sent = Some(self.config.on_connect_profile),
+            Ok(()) => {
+                self.state.last_sent = Some(self.config.on_connect_profile);
+                // The keyboard is now on ON_CONNECT_PROFILE, so realign the
+                // toggle state with it -- otherwise the first hotkey press
+                // after a (re)connect toggles from a stale value and can
+                // announce a switch to the state we are already in.
+                self.chat = self.config.on_connect_profile == self.config.profile_chat;
+            }
             Err(e) => log::warn!(
                 "Failed to set ON_CONNECT_PROFILE; is the official driver closed? {}",
                 e
@@ -201,13 +208,20 @@ pub fn run(config: SwitcherConfig, status: SharedStatus) -> Result<(), Box<dyn s
     }
 
     let api = HidApi::new()?;
+    // Seed the toggle state from the profile the keyboard will be put on at
+    // connect, so the first hotkey press flips *away* from it. Starting this
+    // at a hardcoded `false` while `ON_CONNECT_PROFILE == PROFILE_CHAT` made
+    // the first press claim to switch to chat when chat is where we already
+    // were. `apply_on_connect` re-seeds it on every (re)connect; this is the
+    // value used until the keyboard is first seen.
+    let starts_on_chat = config.on_connect_profile == config.profile_chat;
     let mut ctx = Box::new(EventContext {
         config,
         status,
         api,
         state: ProfileState::default(),
         last_path: None,
-        chat: false,
+        chat: starts_on_chat,
     });
 
     unsafe {
