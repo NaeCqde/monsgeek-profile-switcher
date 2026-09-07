@@ -1,0 +1,24 @@
+name: ci
+
+on:
+    push:
+    pull_request:
+
+env:
+    RUST_BACKTRACE: 1
+
+jobs:
+    build:
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [windows-latest, macos-latest]
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: Swatinem/rust-cache@v2
+            - name: Test
+              run: cargo test --locked
+            - name: Build
+              run: cargo build --locked --release

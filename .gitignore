@@ -1,0 +1,5 @@
+target/
+config.json
+.DS_Store
+.env
+MonsGeekProfileSwitcher*.app.zip
