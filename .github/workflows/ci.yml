@@ -2,7 +2,33 @@ name: ci
 
 on:
     push:
+        paths-ignore:
+            - "**.md"
+            - "LICENSE*"
+            - "docs/**"
+            - ".gitignore"
+            - ".gitattributes"
+            - ".prettierrc*"
+            - ".editorconfig"
+            - ".vscode/**"
+            - ".github/dependabot.yml"
+            - ".github/workflows/security-review.yml"
+            - ".github/workflows/weekly-security.yml"
+            - "**/.DS_Store"
     pull_request:
+        paths-ignore:
+            - "**.md"
+            - "LICENSE*"
+            - "docs/**"
+            - ".gitignore"
+            - ".gitattributes"
+            - ".prettierrc*"
+            - ".editorconfig"
+            - ".vscode/**"
+            - ".github/dependabot.yml"
+            - ".github/workflows/security-review.yml"
+            - ".github/workflows/weekly-security.yml"
+            - "**/.DS_Store"
 
 env:
     RUST_BACKTRACE: 1
