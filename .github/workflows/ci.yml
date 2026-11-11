@@ -1,7 +1,13 @@
 name: ci
 
+# Every push and pull request builds the program for Windows and macOS (the platforms it supports) and archives it, after the tests passed. The `latest` pre-release is updated by every push to a branch (its tag moves to the pushed commit); a version
+# tag (`git tag v0.1.0 && git push --tags`), or a run started by hand with a tag name, makes the release of that tag. A pull
+# request does not publish anything. Changes to documentation, the license and editor settings alone do not start it.
 on:
     push:
+        branches: ["**"]
+        tags:
+            - "v*"
         paths-ignore:
             - "**.md"
             - "LICENSE*"
@@ -29,12 +35,25 @@ on:
             - ".github/workflows/security-review.yml"
             - ".github/workflows/weekly-security.yml"
             - "**/.DS_Store"
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: "Tag of the release to create (made from the selected branch if it does not exist)"
+                required: true
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
 
 env:
     RUST_BACKTRACE: 1
 
 jobs:
-    build:
+    test:
+        name: Test - ${{ matrix.os }}
         strategy:
             fail-fast: false
             matrix:
@@ -48,3 +67,81 @@ jobs:
               run: cargo test --locked
             - name: Build
               run: cargo build --locked --release
+
+    package:
+        name: Build - ${{ matrix.platform.os-name }}
+        needs: test
+        strategy:
+            fail-fast: false
+            matrix:
+                # https://github.com/actions/runner-images
+                platform:
+                    - {os-name: Windows-x86_64, runs-on: windows-2025, ext: ".exe", zip: true}
+                    - {os-name: macOS-aarch64, runs-on: macos-latest, ext: "", zip: false}
+        runs-on: ${{ matrix.platform.runs-on }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ${{ matrix.platform.runs-on }}
+            - name: Build
+              run: cargo build --locked --release
+            # One archive per platform: the executable, the README, the config template, the license and the changes, in a
+            # folder of the same name; and the SHA-256 of the archive next to it.
+            - name: Package
+              shell: bash
+              run: |
+                  name="monsgeek-profile-switcher-${{ matrix.platform.os-name }}"
+                  mkdir "$name"
+                  cp "target/release/monsgeek-profile-switcher${{ matrix.platform.ext }}" "$name/"
+                  cp README.md inactive.env LICENSE Changes.md "$name/"
+                  if [ "${{ matrix.platform.zip }}" = "true" ]; then
+                    archive="$name.zip"
+                    "$(cygpath -u "$SYSTEMROOT")/System32/tar.exe" -a -cf "$archive" "$name"
+                  else
+                    archive="$name.tar.gz"
+                    tar czf "$archive" "$name"
+                  fi
+                  if command -v sha256sum > /dev/null; then sha256sum "$archive" > "$archive.sha256"; else shasum -a 256 "$archive" > "$archive.sha256"; fi
+                  echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: monsgeek-profile-switcher-${{ matrix.platform.os-name }}
+                  path: |
+                      ${{ env.ARCHIVE }}
+                      ${{ env.ARCHIVE }}.sha256
+                  if-no-files-found: error
+
+    # After the platforms have built. A platform that failed is missing from it.
+    release:
+        name: Release
+        needs: package
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  path: dist
+                  merge-multiple: true
+            - name: List the files
+              run: ls -l dist
+            - name: Move the latest tag
+              if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v')
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/latest" -f sha="${{ github.sha }}" -F force=true \
+                    || gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/latest" -f sha="${{ github.sha }}"
+            - name: Make the release
+              if: github.event_name != 'pull_request'
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || 'latest' }}
+                  target_commitish: ${{ github.sha }}
+                  prerelease: ${{ !(inputs.tag || startsWith(github.ref, 'refs/tags/v')) }}
+                  files: dist/*
+                  generate_release_notes: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+                  fail_on_unmatched_files: true
