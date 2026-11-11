@@ -1,5 +1,7 @@
 # MonsGeek Profile Switcher
 
+日本語 | [English](README.en.md)
+
 MonsGeek FUN68（RY5088 系）のオンボードプロファイルの切り替えを、キーボードショートカットとして割り当てられる常駐アプリです。切り替えはキーボードのベンダー HID インターフェースへ 64 バイトの Feature Report を送って行います。
 
 ## 動作
