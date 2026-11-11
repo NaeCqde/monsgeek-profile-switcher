@@ -104,7 +104,7 @@ jobs:
                       --max-turns 40
                       --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
             - name: Merge if the review found nothing left and the pull request looks finished
-              if: steps.last.outputs.mine != 'true'
+              if: steps.last.outputs.mine != 'true' && github.event.pull_request.user.login == github.repository_owner
               env:
                   GH_TOKEN: ${{ secrets.WEEKLY_SECURITY_TOKEN }}
                   PR: ${{ github.event.pull_request.number }}
