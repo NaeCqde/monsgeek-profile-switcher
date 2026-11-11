@@ -103,17 +103,7 @@ pub fn uninstall(app_type: &str) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Delete config file and config directory if empty
-    let target_env = crate::config::get_config_path(app_type);
-    if target_env.exists() {
-        let _ = fs::remove_file(&target_env);
-    }
-    if let Some(config_dir) = target_env.parent() {
-        remove_dir_if_empty_or_ds_store(config_dir);
-        if let Some(parent_config_dir) = config_dir.parent() {
-            remove_dir_if_empty_or_ds_store(parent_config_dir);
-        }
-    }
+    // The configuration folder and its .env are kept on purpose: a later install uses them again.
 
     Ok(())
 }

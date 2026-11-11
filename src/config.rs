@@ -50,11 +50,23 @@ pub fn get_config_path(app_type: &str) -> PathBuf {
     get_config_dir(app_type).join(".env")
 }
 
+/// The configuration folder's `.env` if there is one (installed or not: an uninstall keeps it), else the template `.env`
+/// that came with the download. This is the file shown and edited when the service is not installed.
+pub fn display_config_path(app_type: &str) -> PathBuf {
+    let installed = get_config_path(app_type);
+    if installed.exists() {
+        installed
+    } else {
+        find_inactive_env_path(app_type)
+    }
+}
+
+/// The template `.env` that comes with the download (it is copied to the configuration folder by the install, never over an existing one).
 pub fn find_inactive_env_path(app_type: &str) -> PathBuf {
     if let Ok(current_exe) = env::current_exe() {
         if let Some(parent) = current_exe.parent() {
-            // Check if there is an app_type-specific inactive.env under parent
-            let p_app_type = parent.join(app_type).join("inactive.env");
+            // Check if there is an app_type-specific the template .env under parent
+            let p_app_type = parent.join(app_type).join(".env");
             if p_app_type.exists() {
                 return p_app_type;
             }
@@ -65,7 +77,7 @@ pub fn find_inactive_env_path(app_type: &str) -> PathBuf {
                     if let Some(app_root) = contents.parent() {
                         // Under macOS App Translocation the .app is remounted at a
                         // temporary read-only path.  Use SecTranslocate to resolve the
-                        // original location so we can find the inactive.env that sits
+                        // original location so we can find the the template .env that sits
                         // next to the real .app in the download folder.
                         #[cfg(target_os = "macos")]
                         let real_app_root = macos_de_translocate(app_root);
@@ -73,11 +85,11 @@ pub fn find_inactive_env_path(app_type: &str) -> PathBuf {
                         let real_app_root = app_root.to_path_buf();
 
                         if let Some(app_parent) = real_app_root.parent() {
-                            let p_app_type = app_parent.join(app_type).join("inactive.env");
+                            let p_app_type = app_parent.join(app_type).join(".env");
                             if p_app_type.exists() {
                                 return p_app_type;
                             }
-                            let p = app_parent.join("inactive.env");
+                            let p = app_parent.join(".env");
                             if p.exists() {
                                 return p;
                             }
@@ -89,13 +101,13 @@ pub fn find_inactive_env_path(app_type: &str) -> PathBuf {
                 }
             }
 
-            // Skip checking parent.join("inactive.env") if we are running from a target directory
+            // Skip checking parent.join(".env") if we are running from a target directory
             let is_in_target = exe_dir_str.contains("target/release")
                 || exe_dir_str.contains("target/debug")
                 || exe_dir_str.contains("target/x86_64")
                 || exe_dir_str.contains("target/aarch64");
             if !is_in_target {
-                let p = parent.join("inactive.env");
+                let p = parent.join(".env");
                 if p.exists() {
                     return p;
                 }
@@ -105,11 +117,11 @@ pub fn find_inactive_env_path(app_type: &str) -> PathBuf {
     let p_app_type = env::current_dir()
         .unwrap_or_default()
         .join(app_type)
-        .join("inactive.env");
+        .join(".env");
     if p_app_type.exists() {
         return p_app_type;
     }
-    let p = env::current_dir().unwrap_or_default().join("inactive.env");
+    let p = env::current_dir().unwrap_or_default().join(".env");
     if p.exists() {
         return p;
     }
@@ -216,14 +228,14 @@ fn macos_de_translocate(path: &Path) -> PathBuf {
 pub fn load_env(app_type: &str) {
     // Load all sources, lowest priority first, so later calls override earlier ones.
     // Priority (highest wins): 3. cwd .env  >  2. OS config .env  >  1. existing env vars
-    //                         >  0. inactive.env (only when not installed and no cwd .env).
+    //                         >  0. the template .env (only when not installed and no cwd .env).
     //
     // dotenvy::from_path_override overwrites already-set env vars; from_path does not.
 
     let installed = get_config_path(app_type);
     let cwd_env = env::current_dir().unwrap_or_default().join(".env");
 
-    // Source 0: inactive.env — pre-install preview only.
+    // Source 0: the template .env — pre-install preview only.
     // Used when neither the OS config .env nor a cwd .env exist, so the status
     // display shows meaningful defaults before the user runs the installer.
     if !installed.exists() && !cwd_env.exists() {

@@ -100,7 +100,7 @@ jobs:
                   name="monsgeek-profile-switcher-${{ matrix.platform.os-name }}"
                   mkdir "$name"
                   cp "target/release/monsgeek-profile-switcher${{ matrix.platform.ext }}" "$name/"
-                  cp README.md inactive.env LICENSE Changes.md "$name/"
+                  cp README.md .env LICENSE Changes.md "$name/"
                   if [ "${{ matrix.platform.zip }}" = "true" ]; then
                     archive="$name.zip"
                     "$(cygpath -u "$SYSTEMROOT")/System32/tar.exe" -a -cf "$archive" "$name"

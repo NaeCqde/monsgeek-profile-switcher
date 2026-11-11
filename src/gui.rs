@@ -366,7 +366,6 @@ impl eframe::App for StatusApp {
                         Ok(_) => {
                             self.message = Some("Service successfully uninstalled!".to_string());
                             self.is_error = false;
-                            self.active_env_content = String::new();
                             self.env_changed = false;
                         }
                         Err(e) => {
@@ -375,6 +374,8 @@ impl eframe::App for StatusApp {
                         }
                     }
                     self.refresh();
+                    // the .env stays after an uninstall: show it
+                    self.active_env_content = std::fs::read_to_string(&self.config_path).unwrap_or_default();
                 }
 
                 ui.add_space(10.0);
