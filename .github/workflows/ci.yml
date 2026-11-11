@@ -85,7 +85,14 @@ jobs:
             - uses: Swatinem/rust-cache@v2
               with:
                   key: ${{ matrix.platform.runs-on }}
+            # macOS: cargo-post runs post_build.rs, which makes the .app bundle next to the executable
+            - name: Build (macOS)
+              if: runner.os == 'macOS'
+              run: |
+                  cargo install cargo-post --locked
+                  cargo post build --locked --release
             - name: Build
+              if: runner.os != 'macOS'
               run: cargo build --locked --release
             # One archive per platform: the executable, the README, the config template, the license and the changes, in a
             # folder of the same name; and the SHA-256 of the archive next to it.
@@ -105,12 +112,19 @@ jobs:
                   fi
                   if command -v sha256sum > /dev/null; then sha256sum "$archive" > "$archive.sha256"; else shasum -a 256 "$archive" > "$archive.sha256"; fi
                   echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+                  # macOS: a disk image of the .app bundle (MonsGeekProfileSwitcher.app.dmg), released next to the archive
+                  if [ "${{ runner.os }}" = "macOS" ]; then
+                    hdiutil create -volname MonsGeekProfileSwitcher -srcfolder target/release/MonsGeekProfileSwitcher.app -ov -format UDZO MonsGeekProfileSwitcher.app.dmg
+                    shasum -a 256 MonsGeekProfileSwitcher.app.dmg > MonsGeekProfileSwitcher.app.dmg.sha256
+                  fi
             - uses: actions/upload-artifact@v4
               with:
                   name: monsgeek-profile-switcher-${{ matrix.platform.os-name }}
                   path: |
                       ${{ env.ARCHIVE }}
                       ${{ env.ARCHIVE }}.sha256
+                      *.app.dmg
+                      *.app.dmg.sha256
                   if-no-files-found: error
 
     # After the platforms have built. A platform that failed is missing from it.
