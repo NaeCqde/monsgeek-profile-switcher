@@ -66,9 +66,8 @@ pub fn find_inactive_env_path(app_type: &str) -> PathBuf {
     if let Ok(current_exe) = env::current_exe() {
         if let Some(parent) = current_exe.parent() {
             // Check if there is an app_type-specific the template .env under parent
-            let p_app_type = parent.join(app_type).join(".env");
-            if p_app_type.exists() {
-                return p_app_type;
+            if let Some(p) = template_in(&parent.join(app_type), app_type) {
+                return p;
             }
 
             let exe_dir_str = parent.to_string_lossy();
@@ -85,17 +84,15 @@ pub fn find_inactive_env_path(app_type: &str) -> PathBuf {
                         let real_app_root = app_root.to_path_buf();
 
                         if let Some(app_parent) = real_app_root.parent() {
-                            let p_app_type = app_parent.join(app_type).join(".env");
-                            if p_app_type.exists() {
-                                return p_app_type;
+                            if let Some(p) = template_in(&app_parent.join(app_type), app_type) {
+                                return p;
                             }
-                            let p = app_parent.join(".env");
-                            if p.exists() {
+                            if let Some(p) = template_in(app_parent, app_type) {
                                 return p;
                             }
                             // Canonical fallback: always a meaningful path even if the
                             // file does not yet exist (avoids "/" when Finder sets cwd).
-                            return p_app_type;
+                            return app_parent.join(app_type).join(".env");
                         }
                     }
                 }
@@ -107,25 +104,33 @@ pub fn find_inactive_env_path(app_type: &str) -> PathBuf {
                 || exe_dir_str.contains("target/x86_64")
                 || exe_dir_str.contains("target/aarch64");
             if !is_in_target {
-                let p = parent.join(".env");
-                if p.exists() {
+                if let Some(p) = template_in(parent, app_type) {
                     return p;
                 }
             }
         }
     }
-    let p_app_type = env::current_dir()
-        .unwrap_or_default()
-        .join(app_type)
-        .join(".env");
-    if p_app_type.exists() {
-        return p_app_type;
-    }
-    let p = env::current_dir().unwrap_or_default().join(".env");
-    if p.exists() {
+    let cwd = env::current_dir().unwrap_or_default();
+    if let Some(p) = template_in(&cwd.join(app_type), app_type) {
         return p;
     }
-    p
+    if let Some(p) = template_in(&cwd, app_type) {
+        return p;
+    }
+    cwd.join(".env")
+}
+
+/// The template in a folder: `.env` (source tree), `example.env` or `<app>.example.env` (the files of a release, where a name
+/// starting with a dot is not possible).
+fn template_in(dir: &Path, app_type: &str) -> Option<PathBuf> {
+    [
+        ".env".to_string(),
+        "example.env".to_string(),
+        format!("{app_type}.example.env"),
+    ]
+    .iter()
+    .map(|n| dir.join(n))
+    .find(|p| p.is_file())
 }
 
 /// Resolve the real filesystem path of a macOS App-Translocated bundle.
