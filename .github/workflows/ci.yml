@@ -92,37 +92,25 @@ jobs:
             - name: Build
               if: runner.os != 'macOS'
               run: cargo build --locked --release
-            # One archive per platform: the executable, the README, the config template, the license and the changes, in a
-            # folder of the same name; and the SHA-256 of the archive next to it.
+            # One file per program and platform, uploaded as it is (no archive): <program>-<platform>[.exe], and its SHA-256 next to it.
+            # The license, the changes and the config templates are added once, by the release job.
             - name: Package
               shell: bash
               run: |
-                  name="monsgeek-profile-switcher-${{ matrix.platform.os-name }}"
-                  mkdir "$name"
-                  cp "target/release/monsgeek-profile-switcher${{ matrix.platform.ext }}" "$name/"
-                  cp README.md .env LICENSE Changes.md "$name/"
-                  if [ "${{ matrix.platform.zip }}" = "true" ]; then
-                    archive="$name.zip"
-                    "$(cygpath -u "$SYSTEMROOT")/System32/tar.exe" -a -cf "$archive" "$name"
-                  else
-                    archive="$name.tar.gz"
-                    tar czf "$archive" "$name"
-                  fi
-                  if command -v sha256sum > /dev/null; then sha256sum "$archive" > "$archive.sha256"; else shasum -a 256 "$archive" > "$archive.sha256"; fi
-                  echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
-                  # macOS: a disk image of the .app bundle (MonsGeekProfileSwitcher.app.dmg), released next to the archive
+                  mkdir out
+                  # macOS: the disk image of the .app bundle only
                   if [ "${{ runner.os }}" = "macOS" ]; then
-                    hdiutil create -volname MonsGeekProfileSwitcher -srcfolder target/release/MonsGeekProfileSwitcher.app -ov -format UDZO MonsGeekProfileSwitcher.app.dmg
-                    shasum -a 256 MonsGeekProfileSwitcher.app.dmg > MonsGeekProfileSwitcher.app.dmg.sha256
+                    hdiutil create -volname MonsGeekProfileSwitcher -srcfolder target/release/MonsGeekProfileSwitcher.app -ov -format UDZO out/MonsGeekProfileSwitcher.app.dmg
+                    (cd out && shasum -a 256 MonsGeekProfileSwitcher.app.dmg > MonsGeekProfileSwitcher.app.dmg.sha256)
+                  else
+                    asset="monsgeek-profile-switcher-${{ matrix.platform.os-name }}${{ matrix.platform.ext }}"
+                    cp "target/release/monsgeek-profile-switcher${{ matrix.platform.ext }}" "out/$asset"
+                    (cd out && { sha256sum "$asset" 2>/dev/null || shasum -a 256 "$asset"; } > "$asset.sha256")
                   fi
             - uses: actions/upload-artifact@v4
               with:
                   name: monsgeek-profile-switcher-${{ matrix.platform.os-name }}
-                  path: |
-                      ${{ env.ARCHIVE }}
-                      ${{ env.ARCHIVE }}.sha256
-                      *.app.dmg
-                      *.app.dmg.sha256
+                  path: out/*
                   if-no-files-found: error
 
     # After the platforms have built. A platform that failed is missing from it.
@@ -134,6 +122,7 @@ jobs:
         permissions:
             contents: write
         steps:
+            - uses: actions/checkout@v4
             - uses: actions/download-artifact@v4
               with:
                   path: dist
@@ -154,6 +143,13 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: gh release delete latest --repo "${{ github.repository }}" --yes || true
+            # Next to the executables, once: the license, the changes and the config templates (a file name that starts with a dot cannot be a
+            # release asset, so .env is example.env).
+            - name: Add the license, the changes and the config templates
+              run: |
+                  cp "LICENSE" "dist/LICENSE"
+                  cp "Changes.md" "dist/Changes.md"
+                  cp ".env" "dist/example.env"
             - name: Make the release
               if: github.event_name != 'pull_request'
               uses: softprops/action-gh-release@v2
