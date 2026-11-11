@@ -74,7 +74,7 @@ fn copy_env_file(app_type: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     if !target_env.exists() {
         if source_env.exists() {
-            log::info!("Copying inactive.env configuration to {:?}", target_env);
+            log::info!("Copying the template .env to {:?}", target_env);
             fs::copy(&source_env, &target_env)?;
         } else {
             log::info!("Writing a default .env file");
@@ -193,7 +193,8 @@ pub fn check_status(app_type: &str) -> (bool, bool, PathBuf, PathBuf) {
     let config_path = if is_installed {
         crate::config::get_config_path(app_type)
     } else {
-        crate::config::find_inactive_env_path(app_type)
+        // not installed: the .env a former install left in the configuration folder, else the template of the download
+        crate::config::display_config_path(app_type)
     };
 
     (is_installed, is_running, exe_path, config_path)

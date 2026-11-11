@@ -23,6 +23,8 @@ MonsGeek FUN68(RY5088 系)のキーボードのオンボードプロファイル
 
 場所: Windows `%APPDATA%\monsgeek-profile-switcher\switcher\.env`、macOS `~/Library/Application Support/monsgeek-profile-switcher/switcher/.env`(`--config` で開く)。変更後はデーモンの再起動が必要。
 
+配布物には同じ内容のテンプレート `.env` が付く。インストール時にそれを設定フォルダーの `.env` にコピーするが、設定フォルダーにすでに `.env` があれば上書きしない。アンインストールしても設定フォルダーと `.env` は消さない。サービスをインストールしていなくても、設定フォルダーに `.env` があれば設定の表示・読み込みにそれを使う(なければ配布物のテンプレート)。
+
 | 変数 | 意味 |
 |---|---|
 | `ON_CONNECT_PROFILE` | 起動時・接続時に設定するプロファイル(1〜4) |

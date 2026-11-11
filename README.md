@@ -46,6 +46,8 @@ FUN68 実機で確認した挙動です。**すでに入っているのと同じ
 （Windows: `%APPDATA%\monsgeek-profile-switcher\switcher\.env`、
 macOS: `~/Library/Application Support/monsgeek-profile-switcher/switcher/.env`）。
 
+配布物に入っている `.env` は、インストール時にこのフォルダーへコピーされます（すでにある `.env` は上書きしません）。アンインストールしてもこのフォルダーと `.env` は消えません。インストールしていなくても、このフォルダーに `.env` があればその内容を表示します。
+
 ```env
 ON_CONNECT_PROFILE=2
 PROFILE_CHAT=2
