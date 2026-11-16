@@ -1,6 +1,6 @@
 name: ci
 
-# Every push and pull request builds the program for Windows and macOS (the platforms it supports) and archives it, after the tests passed. The `latest` pre-release is updated by every push to a branch (its tag moves to the pushed commit); a version
+# Every push and pull request builds the program for Windows and macOS (the platforms it supports) and archives it, after the tests passed. The `latest` release is updated by a push to main (its tag moves to the pushed commit; usually with the files that the pull request run built, see `reuse`); a version
 # tag (`git tag v0.1.0 && git push --tags`), or a run started by hand with a tag name, makes the release of that tag. A pull
 # request does not publish anything. Changes to documentation, the license and editor settings alone do not start it.
 on:
@@ -50,8 +50,60 @@ env:
     RUST_BACKTRACE: 1
 
 jobs:
+    # A push to main is, as a rule, the merge of a pull request that has already been built. When the tree of the merged commit is
+    # the very tree that the pull request run built (every platform recorded it in TREE-<platform>), that run's files are used and
+    # nothing is built again; any other case (main moved on, a direct push, a build missing or expired) builds as usual.
+    reuse:
+        name: Reuse the pull request build
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+            actions: read
+            pull-requests: read
+        outputs:
+            reuse: ${{ steps.find.outputs.reuse }}
+        steps:
+            - uses: actions/checkout@v4
+              if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+              with:
+                  persist-credentials: false
+            - name: Find the build of the pull request
+              id: find
+              if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  head=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[0].head.sha // empty')
+                  [ -n "$head" ] || { echo "no pull request: build"; exit 0; }
+                  run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --event pull_request --commit "$head" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  [ -n "$run" ] || { echo "no successful run of the pull request: build"; exit 0; }
+                  # only a run of a branch of this repository: the files of a fork's run are built by code that nobody here has trusted
+                  [ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq '.head_repository.full_name')" = "$GITHUB_REPOSITORY" ] || { echo "the pull request run is from a fork: build"; exit 0; }
+                  mkdir dl reuse
+                  gh run download "$run" --repo "$GITHUB_REPOSITORY" --pattern 'monsgeek-profile-switcher-*' --dir dl || { echo "download failed: build"; exit 0; }
+                  mine=$(git rev-parse 'HEAD^{tree}')
+                  n=0
+                  for f in dl/*/TREE-*; do
+                    [ -f "$f" ] && [ "$(cat "$f")" = "$mine" ] || { echo "the tree differs from the pull request build: build"; exit 0; }
+                    n=$((n + 1))
+                  done
+                  # one per platform of the matrix below
+                  [ "$n" -eq 2 ] || { echo "$n platforms only: build"; exit 0; }
+                  mv dl/monsgeek-profile-switcher-*/* reuse/
+                  echo "reuse run $run (tree $mine)"
+                  echo "reuse=true" >> "$GITHUB_OUTPUT"
+            - uses: actions/upload-artifact@v4
+              if: steps.find.outputs.reuse == 'true'
+              with:
+                  name: monsgeek-profile-switcher-reused
+                  path: reuse/*
+                  if-no-files-found: error
+                  retention-days: 1
+
     test:
         name: Test - ${{ matrix.os }}
+        needs: [reuse]
+        if: ${{ !cancelled() && needs.reuse.outputs.reuse != 'true' }}
         strategy:
             fail-fast: false
             matrix:
@@ -68,7 +120,8 @@ jobs:
 
     package:
         name: Build - ${{ matrix.platform.os-name }}
-        needs: test
+        needs: [reuse, test]
+        if: ${{ !cancelled() && needs.reuse.outputs.reuse != 'true' && needs.test.result == 'success' }}
         strategy:
             fail-fast: false
             matrix:
@@ -98,6 +151,7 @@ jobs:
               shell: bash
               run: |
                   mkdir out
+                  git rev-parse 'HEAD^{tree}' > "out/TREE-${{ matrix.platform.os-name }}"
                   # macOS: the disk image of the .app bundle only
                   if [ "${{ runner.os }}" = "macOS" ]; then
                     hdiutil create -volname MonsGeekProfileSwitcher -srcfolder target/release/MonsGeekProfileSwitcher.app -ov -format UDZO out/MonsGeekProfileSwitcher.app.dmg
@@ -112,12 +166,13 @@ jobs:
                   name: monsgeek-profile-switcher-${{ matrix.platform.os-name }}
                   path: out/*
                   if-no-files-found: error
+                  retention-days: 1
 
     # After the platforms have built. A platform that failed is missing from it.
     release:
         name: Release
-        needs: package
-        if: ${{ !cancelled() }}
+        needs: [reuse, package]
+        if: ${{ !cancelled() && (needs.reuse.outputs.reuse == 'true' || needs.package.result == 'success') }}
         runs-on: ubuntu-24.04
         permissions:
             contents: write
@@ -130,7 +185,7 @@ jobs:
             - name: List the files
               run: ls -l dist
             - name: Move the latest tag
-              if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v')
+              if: github.event_name == 'push' && github.ref == 'refs/heads/main'
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
@@ -139,7 +194,7 @@ jobs:
             # The rolling release is made again by every push (the tag was moved just above): its date is the date of the push, and only the
             # files of this run are in it.
             - name: Remove the old rolling release
-              if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v')
+              if: github.event_name == 'push' && github.ref == 'refs/heads/main'
               env:
                   GH_TOKEN: ${{ github.token }}
               run: gh release delete latest --repo "${{ github.repository }}" --yes || true
@@ -147,11 +202,12 @@ jobs:
             # release asset, so .env is example.env).
             - name: Add the license, the changes and the config templates
               run: |
+                  rm -f dist/TREE-*
                   cp "LICENSE" "dist/LICENSE"
                   cp "Changes.md" "dist/Changes.md"
                   cp ".env" "dist/example.env"
             - name: Make the release
-              if: github.event_name != 'pull_request'
+              if: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
               uses: softprops/action-gh-release@v2
               with:
                   tag_name: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || 'latest' }}
